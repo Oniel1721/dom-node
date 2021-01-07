@@ -7,6 +7,12 @@ const fs = require('fs')
 const getLocalHTML = (route)=>{
     return fs.readFileSync(route).toString()
 }
+const replaceAll = (str = '', searchFor = '', replaceWith = '')=>{
+    while(str.indexOf(searchFor)!== -1){
+        str = str.replace(searchFor,replaceWith)
+    }
+    return str
+}
 
 // Setting innerHtml in the instance
 const setInnerHTML = (self = null, options)=>{
@@ -14,11 +20,11 @@ const setInnerHTML = (self = null, options)=>{
         if(options){
             if(options.route){
                 self.route = path.join(__dirname, options.route)
-                self.innerHTML = getLocalHTML(self.route)
+                self.innerHTML = replaceAll(replaceAll(getLocalHTML(self.route), '\r\n'),'  ')
             }
             else if(options.html || options.isChild){
                 self.route = null
-                self.innerHTML = options.html
+                self.innerHTML = replaceAll(replaceAll(options.html, '\r\n'),'  ')
             }
             else{
                 throw 'Route or HTML not especified.'
@@ -42,11 +48,32 @@ const sliceTag = (tag,html)=>{
     return erase
 }
 
+const tagValidation = (tag)=>{
+    let splited = tag.split(' ')
+    let valid = false
+    if(splited[0].indexOf('!doctype') !== -1 || splited[0].indexOf('!DOCTYPE')!== -1){
+        valid = true
+    }
+    else if(splited[0].indexOf('!--') !== -1){
+        valid = true
+    }
+    else if(splited[0].indexOf('script') !== -1){
+        valid = true
+    }
+    else if(splited[0].indexOf('noscript') !== -1){
+        valid = true
+    }
+    else if(splited[0].indexOf('style') !== -1){
+        valid = true
+    }
+    return valid
+}
+
 const findAnyTag = (html)=>{
     let key1 = html.indexOf('<')
     let key2 = html.indexOf('>')
     let tag = html.slice(key1, key2+1)
-    if(tag.indexOf('!doctype') !== -1 || tag.indexOf('!DOCTYPE')!== -1){
+    if(tagValidation(tag)){
         return findAnyTag(sliceTag(tag,html))
     }
     else if(tag[1] === '/'){
@@ -162,7 +189,7 @@ const setDOM = (self)=>{
 const setChildren = (self)=>{
     self.children = []
     let html = self.innerHTML
-    while (findAnyTag(html) && i < 15){
+    while (findAnyTag(html)){
         let newChild = {
             innerHTML: html
         }
@@ -178,12 +205,68 @@ const setProperties = (self, properties)=>{
     }
 }
 
+const getTree = (doc, tree = {})=>{
+    let i = 2
+    let currentName = doc.tagName
+    if(tree[doc.tagName]){
+        let validation = tree[`${doc.tagName}${i}`]
+        while(validation){
+            i++
+            validation = tree[`${doc.tagName}${i}`]
+        }
+        currentName = `${doc.tagName}${i}`
+        tree[currentName] = {}
+    }
+    else{
+        tree[currentName] = {}
+    }
+    if(doc.children){
+        doc.children.forEach(child=>{
+        tree[currentName] = getTree(child, tree[currentName])
+        })
+    }
+    else{
+        if(doc.innerHTML){
+            tree[currentName].content = doc.innerHTML
+        }
+        else{
+            tree[currentName].content = doc.openerTag
+        }
+    }
+    return tree
+}
+
+const atributteValidation = (str = '')=>{
+    str = str.trim()
+    if(str === ' '){
+        return true
+    }
+    if(!str){
+        return true
+    }
+    if(str === '/'){
+        return true
+    }
+    return false
+}
+
+const setAtributtes = (self)=>{
+    let openerTag = self.openerTag.slice(self.openerTag.indexOf(' '),self.openerTag.length-1).trim()
+    if(openerTag[openerTag.length-1] === '/'){
+        openerTag = openerTag.slice(0,openerTag.length-1)
+    }
+    if(openerTag){
+        openerTag = openerTag.split('=')
+        console.log(openerTag)
+    }
+}
 
 class ChildNode{
     constructor(self, properties){
         setProperties(this, properties)
         this.route = self
         this.isChild = true
+        // setAtributtes(this)
         if(findAnyTag(this.innerHTML)){
             setChildren(this)
         }
@@ -195,10 +278,12 @@ class DOMNode{
         setInnerHTML(this, options)
         if(!this.isChild){
             setDOM(this)
+            // setAtributtes(this)
         }
         if(findAnyTag(this.innerHTML)){
             setChildren(this)
         }
+        this.tree = getTree(this)
     }
 }
 
